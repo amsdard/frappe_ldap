@@ -17,17 +17,18 @@ app_version = "0.0.1"
 
 # include js, css files in header of web template
 # web_include_css = "/assets/frappe_ldap/css/frappe_ldap.css"
-# web_include_js = "/assets/frappe_ldap/js/frappe_ldap.js"
+web_include_js = "/assets/frappe_ldap/js/frappe_ldap.js"
 
 # Home Pages
 # ----------
 
 # application home page (will override Website Settings)
-# home_page = "login"
+#login_page = "login"
+#hompe_page = "login"
 
 # website user home page (by Role)
-# role_home_page = {
-#	"Role": "home_page"
+# recordole_home_page = {
+# 	"Role": "home_page"
 # }
 
 # Generators

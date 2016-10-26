@@ -1,109 +1,166 @@
 from __future__ import unicode_literals
-import frappe
 import json
+import ldap
+import itertools
+import frappe
 import frappe.utils
 from frappe import _
+from frappe.utils import nowdate, nowtime, cint
+from frappe.utils.password import get_decrypted_password, get_encryption_key
+from frappe_ldap.ldap.doctype.ldap_settings.ldap_settings import set_ldap_connection
 
 
 @frappe.whitelist(allow_guest=True)
 def ldap_login(user, pwd, provider=None):
-	#### LDAP LOGIN LOGIC #####
-	user=ldap_authentication(user, pwd)
+    """ Ldap login controller. Tries to authenticate with ldap database, redirects to desktop on success. """
+    username = user
 
-	frappe.local.login_manager.user = user
-	frappe.local.login_manager.post_login()
+    # make session user as Admin to create share doc entry
+    frappe.session.user = 'Administrator'
 
-	# redirect!
-	frappe.local.response["type"] = "redirect"
+    user = ldap_authentication(username, pwd)
 
-	# the #desktop is added to prevent a facebook redirect bug
-	frappe.local.response["location"] = "/desk#desktop" if frappe.local.response.get('message') == 'Logged In' else "/"
+    frappe.local.login_manager.user = user['mail']
+    frappe.local.login_manager.post_login()
 
-	# because of a GET request!
-	frappe.db.commit()
+    return "Logged In"
 
-def ldap_authentication(user, pwd):
-	server_details = get_details()
-	user, user_id, status, role = ldap_auth(user,pwd,server_details)
-	check_profile(user, user_id, pwd, role)
-	return user
 
-def ldap_auth(user, pwd, server_details):
-	from frappe_ldap.ldap.doctype.ldap_settings.ldap_settings import set_ldap_connection
-	import ldap
+def ldap_authentication(username, pwd):
+    server_details = get_ldap_settings()
 
-	status = True
-	mail = None
-	user_id = None
-	dn = None
+    # get connection
+    conn = get_bound_connection(server_details)
 
-	conn, user_dn, base_dn = set_ldap_connection(server_details)
-	filters = "uid=*"+user+"*"
-	role = 'Default'
-	try:
-		# l = ldap.initialize('ldap://ldap.forumsys.com/')
-		conn.simple_bind_s(user_dn, pwd)
-		result = conn.search_s(base_dn, ldap.SCOPE_SUBTREE, filters)
+    # get user
+    user = get_ldap_user(conn, username, pwd, server_details)
 
-		for dn, r in result:
-			dn = str(dn)
-			mail = str(r['mail'][0])
-			user_id = str(r['uid'][0])
-			role = r.get('description') if r.get('description') else 'Default'
-		if dn:
-			conn.simple_bind_s(dn,pwd)
-			status = True
-		else:
-			frappe.msgprint("Not a valid LDAP user", raise_exception=1)
-	except ldap.LDAPError, e:
-		conn.unbind_s()
-		status = False
-		frappe.msgprint("Incorrect UserId or Password", raise_exception=1)
-	return mail, user_id, status, role
+    # get groups
+    groups = get_ldap_groups(conn, user, server_details)
 
-def check_profile(user, user_id, pwd, role,enabled_profiles=[]):
-	"check for profile, if not exist creates new profile"
-	profile = frappe.db.sql("select name from tabUser where name = %s",user)
+    # update erpnext
+    upsert_profile(user, pwd, groups)
 
-	#Make session user as Admin to create share doc entry
-	frappe.session.user = 'Administrator'
+    return user
 
-	if not profile:
-		from frappe.utils import nowdate, nowtime
-		d = frappe.new_doc("User")
-		d.owner = "Administrator"
-		d.email = user
-		d.first_name = user_id
-		d.enabled = 1
-		d.new_password = pwd
-		d.creation = nowdate() + ' ' + nowtime()
-		d.user_type = "System User"
-		d.save(ignore_permissions=True)
-		enabled_profiles.append(user_id)
-		assign_role(user, user_id, role)
 
-def assign_role(user, user_id, role):
-	roles_list = get_role_list(role)
-	for role in roles_list:
-		ur = frappe.new_doc('UserRole')
-		ur.parent=user
-		ur.parentfield='user_roles'
-		ur.parenttype='User'
-		ur.role= role[0]
-		ur.save()
+def get_bound_connection(server_details):
+    """Get ldap connection and bind readonly user."""
 
-def get_role_list(roles):
-	role_list = []
-	for role in roles.split(','):
-		role_list=frappe.db.sql("select role from `tabRole Mapper Details` where parent='%s'"%(role),as_list=1)
-	return role_list
+    conn = set_ldap_connection(server_details)
+    user_dn = server_details.get('user_dn')
+    password = get_decrypted_password("LDAP Settings", "LDAP Settings", "pwd")
 
-def check_if_enabled(user):
-	"""raise exception if user not enabled"""
-	from frappe.utils import cint
-	if user=='Administrator': return
-	if not cint(frappe.db.get_value('User', user, 'enabled')):
-		frappe.msgprint('User disabled or missing',raise_exception=1)
+    try:
+        # bind with ldap readonly user
+        conn.simple_bind_s(user_dn, password)
+    except ldap.LDAPError as e:
+        frappe.msgprint("Incorrect Ldap Settings", raise_exception=1)
+        conn.unbind_s()
+        raise
 
-def get_details():
-	return frappe.db.get_value("LDAP Settings",None,['ldap_server','user_dn','base_dn','pwd'],as_dict=1)
+    return conn
+
+
+def get_ldap_user(conn, username, pwd, server_details):
+    user = None
+
+    user_filter = server_details.get('user_filter', '')
+    base_dn = server_details.get('base_dn')
+
+    try:
+        # search for erpnext user in ldap database
+        result = conn.search_s(base_dn, ldap.SCOPE_SUBTREE, '(&(uid={}){})'.format(username, user_filter))
+    except ldap.LDAPError as e:
+        frappe.msgprint("Incorrect Username or Password.", raise_exception=1)
+        conn.unbind_s()
+        raise
+
+    for dn, r in result:
+        user_dn = str(dn)
+        user = {
+            "mail": str(r['mail'][0]),
+            "username": username,
+            "first_name": str(r['givenName'][0]),
+            "last_name": str(r['sn'][0]),
+            "gidNumber":  str(r['gidNumber'][0])
+        }
+
+    # check if provided user password is correct
+    if user_dn:
+        try:
+            user_conn = set_ldap_connection(server_details)
+            user_conn.simple_bind_s(user_dn, pwd)
+        except ldap.LDAPError as e:
+            frappe.msgprint("Incorrect Username or Password", raise_exception=1)
+            raise
+        finally:
+            user_conn.unbind_s()
+    else:
+        frappe.msgprint("Not a valid LDAP user", raise_exception=1)
+
+    return user
+
+
+def get_ldap_groups(conn, user, server_details):
+    """ Return names of all posixGroups to which user belongs."""
+
+    base_dn = server_details.get('base_dn')
+    result = conn.search_s(base_dn, ldap.SCOPE_SUBTREE, '(&(objectClass=posixGroup)(memberUid={}))'.format(user['username']))
+
+    groups = []
+    for dn, r in result:
+        groups.append(r['cn'][0])
+
+    return groups
+
+
+def upsert_profile(user, pwd, groups):
+    """ Creates or updates user profile. """
+    result = None
+    profile = frappe.db.sql("select name from tabUser where username = '%s'" % user['username'])
+    if not profile:
+        d = frappe.new_doc("User")
+        d.owner = "Administrator"
+        d.email = user['mail']
+        d.username = user['username']
+        d.first_name = user['first_name']
+        d.last_name = user['last_name']
+        d.enabled = 1
+        d.new_password = pwd
+        d.creation = nowdate() + ' ' + nowtime()
+        d.user_type = "System User"
+        d.save(ignore_permissions=True)
+        result = "insert"
+    else:
+        frappe.db.sql("update tabUser set email='%s', first_name='%s', last_name='%s' where username='%s'" % (user['mail'], user['first_name'], user['last_name'], user['username']))
+        result = "update"
+
+    # update user's roles, as they might have changed from last login
+    update_roles(user, get_role_list(groups))
+    return result
+
+
+def update_roles(user, roles):
+    user = frappe.get_doc("User", user['mail'])
+    current_roles = [d.role for d in user.get("user_roles") if d.owner=="ldap" ]
+
+    user.remove_roles(*list(set(current_roles) - set(roles)))
+    user.add_roles(*roles)
+
+    for role in roles:
+        # change new roles ownership to ldap
+        frappe.db.sql("update tabUserRole set owner='ldap' where parent='%s' and role='%s'" % (user.email, role))
+
+
+def get_role_list(groups):
+    """ Map ldap groups to erpnext roles using matched mapper."""
+    role_list = []
+    for group in groups:
+        role_list.extend(frappe.db.sql("select role from `tabRole Mapper Details` where parent='%s'" % (group), as_list=1))
+    return list(itertools.chain(*role_list))
+
+
+def get_ldap_settings():
+    return frappe.db.get_value("LDAP Settings", None,
+                               ['ldap_server','user_dn','base_dn', 'tls_ca_path', 'user_filter', 'pwd'], as_dict=1)

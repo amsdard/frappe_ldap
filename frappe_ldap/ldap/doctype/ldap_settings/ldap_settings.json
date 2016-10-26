@@ -62,7 +62,27 @@
    "permlevel": 0, 
    "precision": "", 
    "reqd": 1
-  }, 
+  },
+  {
+   "description": "LDAP tls ca certificate",
+   "fieldname": "tls_ca_path",
+   "fieldtype": "Data",
+   "hidden": 0,
+   "label": "Tls ca path",
+   "permlevel": 0,
+   "precision": "",
+   "reqd": 0
+  },
+  {
+   "description": "LDAP ldap user filter \n eg: (objectClass=posixAccount)(memberOf=cn=erpnext,ou=groups,dc=ldap,dc=company,dc=com)",
+   "fieldname": "user_filter",
+   "fieldtype": "Data",
+   "hidden": 0,
+   "label": "LDAP user filter",
+   "permlevel": 0,
+   "precision": "",
+   "reqd": 0
+  },
   {
    "fieldname": "user_sync_schedular", 
    "fieldtype": "Section Break", 

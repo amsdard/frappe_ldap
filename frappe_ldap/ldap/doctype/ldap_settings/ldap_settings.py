@@ -2,26 +2,34 @@
 # For license information, please see license.txt
 
 from __future__ import unicode_literals
+import ldap
 import frappe
 from frappe.model.document import Document
-import ldap
+
 
 class LDAPSettings(Document):
-	pass
+    pass
+
 
 def set_ldap_connection(server_details):
-	if server_details:
-		# the following is the user_dn format provided by the ldap server
-		user_dn = server_details.get('user_dn')
+    if server_details:
+        # self signed ca path
+        ca_path = server_details.get('tls_ca_path')
 
-		# adjust this to your base dn for searching
-		base_dn = server_details.get('base_dn')
-		try:
-			if server_details.get('ldap_server'):
-				connect = ldap.initialize(server_details.get('ldap_server'))
-			else:
-				frappe.msgprint("Please setup server details", raise_exception=1)
-		except ldap.LDAPError, e:
-			frappe.msgprint("Connection Filed!!! Contact System Manager", raise_exception=1)
+        try:
+            if server_details.get('ldap_server'):
+                ldap.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER)
+                connection = ldap.initialize(server_details.get('ldap_server'))
 
-		return connect, user_dn, base_dn
+                if ca_path:
+                    connection.set_option(ldap.OPT_REFERRALS, 0)
+                    connection.set_option(ldap.OPT_PROTOCOL_VERSION, 3)
+                    connection.set_option(ldap.OPT_X_TLS_CACERTFILE, ca_path)
+                    connection.set_option(ldap.OPT_X_TLS, ldap.OPT_X_TLS_DEMAND)
+                    connection.set_option(ldap.OPT_X_TLS_DEMAND, True)
+            else:
+                frappe.msgprint("Please setup server details", raise_exception=1)
+        except ldap.LDAPError, e:
+            frappe.msgprint("Connection Filed!!! Contact System Manager", raise_exception=1)
+
+        return connection
