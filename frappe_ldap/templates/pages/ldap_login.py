@@ -66,6 +66,7 @@ def get_ldap_user(conn, username, pwd, server_details):
     user = None
 
     user_filter = server_details.get('user_filter', '')
+    user_dn = None
     base_dn = server_details.get('base_dn')
 
     try:
