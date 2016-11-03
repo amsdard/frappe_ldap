@@ -84,6 +84,16 @@
    "reqd": 0
   },
   {
+   "description": "LDAP project filter \n eg: (objectClass=posixGroup)",
+   "fieldname": "project_filter",
+   "fieldtype": "Data",
+   "hidden": 0,
+   "label": "LDAP project filter",
+   "permlevel": 0,
+   "precision": "",
+   "reqd": 0
+  },
+  {
    "fieldname": "user_sync_schedular", 
    "fieldtype": "Section Break", 
    "label": "User Sync Scheduler", 

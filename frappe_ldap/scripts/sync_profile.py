@@ -1,7 +1,7 @@
 import ldap, sys, frappe
 from frappe.utils import nowdate,  nowtime, cstr
 from frappe import sendmail
-from templates.pages.ldap_login import upsert_profile, get_bound_connection
+from frappe_ldap.templates.pages.ldap_login import upsert_profile, get_bound_connection
 from frappe.utils import random_string
 from frappe_ldap.templates.pages.ldap_login import get_ldap_settings
 from frappe_ldap.ldap.doctype.ldap_settings.ldap_settings import set_ldap_connection

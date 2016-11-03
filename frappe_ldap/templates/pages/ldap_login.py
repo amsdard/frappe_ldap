@@ -6,6 +6,7 @@ import frappe
 import frappe.utils
 from frappe import _
 from frappe.utils import nowdate, nowtime, cint
+from frappe.defaults import set_default, clear_cache
 from frappe.utils.password import get_decrypted_password, get_encryption_key
 from frappe_ldap.ldap.doctype.ldap_settings.ldap_settings import set_ldap_connection
 
@@ -134,11 +135,14 @@ def upsert_profile(user, pwd, groups):
         d.save(ignore_permissions=True)
         result = "insert"
     else:
-        frappe.db.sql("update tabUser set email='%s', first_name='%s', last_name='%s' where username='%s'" % (user['mail'], user['first_name'], user['last_name'], user['username']))
+        frappe.db.sql("update tabUser set email='%s', first_name='%s', last_name='%s' where username='%s'" %
+                      (user['mail'], user['first_name'], user['last_name'], user['username']))
         result = "update"
 
     # update user's roles, as they might have changed from last login
     update_roles(user, get_role_list(groups))
+    update_user_permissions(user, groups)
+
     return result
 
 
@@ -154,6 +158,39 @@ def update_roles(user, roles):
         frappe.db.sql("update tabUserRole set owner='ldap' where parent='%s' and role='%s'" % (user.email, role))
 
 
+def update_user_permissions(user, groups):
+    """Sets projects permission based on ldap posix groups"""
+
+    current_permissions = itertools.chain(
+        *(frappe.db.sql("SELECT defvalue FROM tabDefaultValue WHERE owner='ldap' "
+                        "AND parent='%s' AND parenttype='User Permission' AND defkey='Project'" % (user['mail']))))
+
+    not_existing_permissions = list(set(current_permissions) - set(groups))
+    new_permissions = list(set(groups) - set(current_permissions))
+
+    # delete not existing project permissions
+    if not_existing_permissions:
+        frappe.db.sql("DELETE FROM tabDefaultValue WHERE parent='%s' AND parenttype='User Permission' "
+                      "AND defkey='Project' AND owner='ldap' AND defvalue IN (%s) "
+                      % (user['mail'], ','.join("'%s'" % p for p in not_existing_permissions)))
+
+    if new_permissions:
+        for name in new_permissions:
+            d = frappe.get_doc({
+                "owner": "ldap",
+                "doctype": "DefaultValue",
+                "parent": user['mail'],
+                "parenttype": "User Permission",
+                "parentfield": "system_defaults",
+                "defkey": 'Project',
+                "defvalue": name
+            })
+
+            d.insert(ignore_permissions=True)
+
+    clear_cache(user['mail'])
+
+
 def get_role_list(groups):
     """ Map ldap groups to erpnext roles using matched mapper."""
     role_list = []
@@ -164,4 +201,4 @@ def get_role_list(groups):
 
 def get_ldap_settings():
     return frappe.db.get_value("LDAP Settings", None,
-                               ['ldap_server','user_dn','base_dn', 'tls_ca_path', 'user_filter', 'pwd'], as_dict=1)
+                               ['ldap_server','user_dn','base_dn', 'tls_ca_path', 'user_filter', 'project_filter', 'pwd'], as_dict=1)

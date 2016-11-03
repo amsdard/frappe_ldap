@@ -79,17 +79,20 @@ fixtures=["LDAP ERP Role Mapper"]
 # ---------------
 
 scheduler_events = {
+	"hourly": [
+		"frappe_ldap.scripts.sync_projects.sync_ldap_projects"
+	],
 	"all": [
-		"frappe_ldap.sync_profile.check_profiles_daily"
+		"frappe_ldap.scripts.sync_profile.check_profiles_daily"
 	],
 	"daily": [
-		"frappe_ldap.sync_profile.check_profiles_daily"
+		"frappe_ldap.scripts.sync_profile.check_profiles_daily"
 	],
 	"weekly": [
-		"frappe_ldap.sync_profile.check_profiles_weekly"
+		"frappe_ldap.scripts.sync_profile.check_profiles_weekly"
 	],
 	"monthly": [
-		"frappe_ldap.sync_profile.check_profiles_monthly"
+		"frappe_ldap.scripts.sync_profile.check_profiles_monthly"
 	]
 }
 
