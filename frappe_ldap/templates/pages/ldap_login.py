@@ -40,6 +40,7 @@ def ldap_authentication(username, pwd):
     groups = get_ldap_groups(conn, user, server_details)
 
     # update erpnext
+    user['username'] = user['username'].replace('.', '_')
     upsert_profile(user, pwd, groups)
 
     return user
