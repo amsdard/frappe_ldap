@@ -109,7 +109,7 @@ def get_ldap_groups(conn, user, server_details):
     """ Return names of all posixGroups to which user belongs."""
 
     base_dn = server_details.get('base_dn')
-    result = conn.search_s(base_dn, ldap.SCOPE_SUBTREE, '(&(objectClass=posixGroup)(memberUid={}))'.format(user['username']))
+    result = conn.search_s(base_dn, ldap.SCOPE_SUBTREE, '(&(objectClass=posixGroup)(memberUid={}))'.format(user['username'].lower()))
 
     groups = []
     for dn, r in result:
@@ -162,9 +162,9 @@ def update_roles(user, roles):
 def update_user_permissions(user, groups):
     """Sets projects permission based on ldap posix groups"""
 
-    current_permissions = itertools.chain(
-        *(frappe.db.sql("SELECT defvalue FROM tabDefaultValue WHERE owner='ldap' "
-                        "AND parent='%s' AND parenttype='User Permission' AND defkey='Project'" % (user['mail']))))
+    current_permissions = list(itertools.chain.from_iterable(
+        (frappe.db.sql("SELECT defvalue FROM tabDefaultValue WHERE owner='ldap' "
+                        "AND parent='%s' AND parenttype='User Permission' AND defkey='Project'" % (user['mail'])))))
 
     not_existing_permissions = list(set(current_permissions) - set(groups))
     new_permissions = list(set(groups) - set(current_permissions))

@@ -82,18 +82,18 @@ scheduler_events = {
 	"hourly": [
 		"frappe_ldap.scripts.sync_projects.sync_ldap_projects"
 	],
-	"all": [
-		"frappe_ldap.scripts.sync_profile.check_profiles_daily"
-	],
-	"daily": [
-		"frappe_ldap.scripts.sync_profile.check_profiles_daily"
-	],
-	"weekly": [
-		"frappe_ldap.scripts.sync_profile.check_profiles_weekly"
-	],
-	"monthly": [
-		"frappe_ldap.scripts.sync_profile.check_profiles_monthly"
-	]
+	# "all": [
+	# 	"frappe_ldap.scripts.sync_profile.check_profiles_daily"
+	# ],
+	# "daily": [
+	# 	"frappe_ldap.scripts.sync_profile.check_profiles_daily"
+	# ],
+	# "weekly": [
+	# 	"frappe_ldap.scripts.sync_profile.check_profiles_weekly"
+	# ],
+	# "monthly": [
+	# 	"frappe_ldap.scripts.sync_profile.check_profiles_monthly"
+	# ]
 }
 
 # Testing
