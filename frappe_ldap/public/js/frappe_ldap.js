@@ -27,3 +27,9 @@ $("#ldap-login").on("click", function(event) {
     //login.call(args);
     return false;
 });
+
+$(".form-signin").unbind("submit");
+$(".form-signin").on("submit", function(event){
+    event.preventDefault();
+    $("#ldap-login").click();
+});
