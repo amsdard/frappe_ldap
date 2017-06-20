@@ -149,7 +149,8 @@ def upsert_profile(user, pwd, groups):
 
 def update_roles(user, roles):
     user = frappe.get_doc("User", user['mail'])
-    current_roles = [d.role for d in user.get("user_roles") if d.owner=="ldap" ]
+    user_roles = user.get("user_roles") or []
+    current_roles = [d.role for d in user_roles if d.owner=="ldap" ]
 
     user.remove_roles(*list(set(current_roles) - set(roles)))
     user.add_roles(*roles)
