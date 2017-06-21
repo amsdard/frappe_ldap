@@ -66,7 +66,7 @@ def get_ldap_users(conn, server_details):
 
 def admin_notification(new_profiels):
     msg = get_message(new_profiels)
-    receiver = frappe.db.sql("select parent from tabUserRole where role = 'System Manager' and parent not like '%administrator%'", as_list=1)[0]
+    receiver = frappe.db.sql("select parent from `tabHas Role` where role = 'System Manager' and parent not like '%administrator%'", as_list=1)[0]
     
     if len(new_profiels) >= 1:
         frappe.sendmail(recipients=receiver, sender=None, subject="[LDAP-ERP] Newly Created Profiles", message=cstr(msg))

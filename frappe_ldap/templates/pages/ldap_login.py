@@ -149,7 +149,7 @@ def upsert_profile(user, pwd, groups):
 
 def update_roles(user, roles):
     user = frappe.get_doc("User", user['mail'])
-    user_roles = user.get("user_roles") or []
+    user_roles = user.get("roles") or []
     current_roles = [d.role for d in user_roles if d.owner=="ldap" ]
 
     user.remove_roles(*list(set(current_roles) - set(roles)))
@@ -157,7 +157,7 @@ def update_roles(user, roles):
 
     for role in roles:
         # change new roles ownership to ldap
-        frappe.db.sql("update tabUserRole set owner='ldap' where parent='%s' and role='%s'" % (user.email, role))
+        frappe.db.sql("update `tabHas Role` set owner='ldap' where parent='%s' and role='%s'" % (user.email, role))
 
 
 def update_user_permissions(user, groups):
