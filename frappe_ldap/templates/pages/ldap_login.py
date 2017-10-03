@@ -164,28 +164,27 @@ def update_user_permissions(user, groups):
     """Sets projects permission based on ldap posix groups"""
 
     current_permissions = list(itertools.chain.from_iterable(
-        (frappe.db.sql("SELECT defvalue FROM tabDefaultValue WHERE owner='ldap' "
-                        "AND parent='%s' AND parenttype='User Permission' AND defkey='Project'" % (user['mail'])))))
+        (frappe.db.sql("SELECT for_value FROM `tabUser Permission` WHERE owner='ldap' "
+                        "AND user='%s' AND allow='Project'" % (user['mail'])))))
 
     not_existing_permissions = list(set(current_permissions) - set(groups))
     new_permissions = list(set(groups) - set(current_permissions))
 
     # delete not existing project permissions
     if not_existing_permissions:
-        frappe.db.sql("DELETE FROM tabDefaultValue WHERE parent='%s' AND parenttype='User Permission' "
-                      "AND defkey='Project' AND owner='ldap' AND defvalue IN (%s) "
+        frappe.db.sql("DELETE FROM `tabUser Permission` WHERE user='%s' AND allow='Project' "
+                      " AND for_value IN (%s) "
                       % (user['mail'], ','.join("'%s'" % p for p in not_existing_permissions)))
 
     if new_permissions:
         for name in new_permissions:
             d = frappe.get_doc({
                 "owner": "ldap",
-                "doctype": "DefaultValue",
-                "parent": user['mail'],
-                "parenttype": "User Permission",
-                "parentfield": "system_defaults",
-                "defkey": 'Project',
-                "defvalue": name
+                "doctype": "User Permission",
+                "user": user['mail'],
+                "allow": "Project",
+                "for_value": name,
+                "apply_for_all_roles": 0
             })
 
             d.insert(ignore_permissions=True)
