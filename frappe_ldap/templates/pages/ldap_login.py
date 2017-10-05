@@ -1,14 +1,31 @@
 from __future__ import unicode_literals
 import json
 import ldap
+import os
 import itertools
 import frappe
 import frappe.utils
 from frappe import _
 from frappe.utils import nowdate, nowtime, cint
 from frappe.defaults import set_default, clear_cache
-from frappe.utils.password import get_decrypted_password, get_encryption_key
-from frappe_ldap.ldap.doctype.ldap_settings.ldap_settings import set_ldap_connection
+from ldapsync2 import LdapSyncUtils
+
+
+env = os.environ.get
+SERVER = env('LDAP_SERVER')
+PORT = env("LDAP_PORT") or '636'
+CA_PATH = env("LDAP_CA_PATH")
+
+BIND_DN = env('LDAP_BIND_DN')
+BIND_PASSWORD = env('LDAP_BIND_PASSWORD')
+
+USER_SEARCH_BASE = env('LDAP_USER_DN')
+USER_SEARCH_FILTER = env('LDAP_USER_FILTER')
+
+GROUP_SEARCH_BASE = env('LDAP_GROUP_DN')
+GROUP_SEARCH_FILTER = env('LDAP_GROUP_FILTER')
+GROUP_SEARCH_SUBTREES = env('GROUP_SEARCH_SUBTREES', 'clients,projects,products')
+GROUP_SUBTREES = ['{},{}'.format(t, GROUP_SEARCH_BASE) for t in GROUP_SEARCH_SUBTREES.split(',')]
 
 
 @frappe.whitelist(allow_guest=True)
@@ -31,49 +48,35 @@ def ldap_authentication(username, pwd):
     server_details = get_ldap_settings()
 
     # get connection
-    conn = get_bound_connection(server_details)
+    utils = LdapSyncUtils()
 
     # get user
-    user = get_ldap_user(conn, username, pwd, server_details)
+    user = get_ldap_user(utils.conn, username, pwd)
 
     # get groups
-    groups = get_ldap_groups(conn, user, server_details)
+    groups = utils.get_user_ldap_groups(username)
+    roles = utils._get_posix_groups(username, scope=1, only_subtrees=False)
 
     # update erpnext
     user['username'] = user['username'].replace('.', '_')
-    upsert_profile(user, pwd, groups)
+    upsert_profile(user, pwd, groups, roles)
 
     return user
 
 
-def get_bound_connection(server_details):
-    """Get ldap connection and bind readonly user."""
-
-    conn = set_ldap_connection(server_details)
-    user_dn = server_details.get('user_dn')
-    password = get_decrypted_password("LDAP Settings", "LDAP Settings", "pwd")
-
-    try:
-        # bind with ldap readonly user
-        conn.simple_bind_s(user_dn, password)
-    except ldap.LDAPError as e:
-        frappe.msgprint("Incorrect Ldap Settings", raise_exception=1)
-        conn.unbind_s()
-        raise
-
-    return conn
-
-
-def get_ldap_user(conn, username, pwd, server_details):
+def get_ldap_user(conn, username, pwd):
     user = None
-
-    user_filter = server_details.get('user_filter', '')
     user_dn = None
-    base_dn = server_details.get('base_dn')
 
     try:
         # search for erpnext user in ldap database
-        result = conn.search_s(base_dn, ldap.SCOPE_SUBTREE, '(&(uid={}){})'.format(username, user_filter))
+        result = conn.search_s(
+            USER_SEARCH_BASE,
+            ldap.SCOPE_SUBTREE,
+            '(&(uid={}){})'.format(username, USER_SEARCH_FILTER),
+            [ str('cn'), str('entryDN'), str('mail'), str('givenName'), str('gidNumber'), str('sn')]
+
+        )
     except ldap.LDAPError as e:
         frappe.msgprint("Incorrect Username or Password.", raise_exception=1)
         conn.unbind_s()
@@ -92,33 +95,20 @@ def get_ldap_user(conn, username, pwd, server_details):
     # check if provided user password is correct
     if user_dn:
         try:
-            user_conn = set_ldap_connection(server_details)
-            user_conn.simple_bind_s(user_dn, pwd)
+            utils = LdapSyncUtils()
+            utils.get_connection(user_dn, pwd)
         except ldap.LDAPError as e:
             frappe.msgprint("Incorrect Username or Password", raise_exception=1)
             raise
         finally:
-            user_conn.unbind_s()
+            utils.conn.unbind_s()
     else:
         frappe.msgprint("Not a valid LDAP user", raise_exception=1)
 
     return user
 
 
-def get_ldap_groups(conn, user, server_details):
-    """ Return names of all posixGroups to which user belongs."""
-
-    base_dn = server_details.get('base_dn')
-    result = conn.search_s(base_dn, ldap.SCOPE_SUBTREE, '(&(objectClass=posixGroup)(memberUid={}))'.format(user['username'].lower()))
-
-    groups = []
-    for dn, r in result:
-        groups.append(r['cn'][0])
-
-    return groups
-
-
-def upsert_profile(user, pwd, groups):
+def upsert_profile(user, pwd, groups, roles):
     """ Creates or updates user profile. """
     result = None
     profile = frappe.db.sql("select name from tabUser where username = '%s'" % user['username'])
@@ -141,7 +131,7 @@ def upsert_profile(user, pwd, groups):
         result = "update"
 
     # update user's roles, as they might have changed from last login
-    update_roles(user, get_role_list(groups))
+    update_roles(user, get_role_list(roles))
     update_user_permissions(user, groups)
 
     return result
